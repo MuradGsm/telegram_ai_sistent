@@ -2,12 +2,18 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+
 from app.core.enums import PlanTier
 
 
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     timezone: str = Field(default='Asia/Baku', max_length=64)
+
+
+class WorkspaceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    timezone: str | None = Field(default=None, max_length=64)
 
 
 class WorkspaceOut(BaseModel):
@@ -17,10 +23,10 @@ class WorkspaceOut(BaseModel):
     name: str
     timezone: str
     is_bot_active: bool
-    telegram_bot_username: str | None
+    telegram_bot_username: str | None = None
     plan_tier: PlanTier
-    montly_message_limit: int
-    message_used_this_period: int
+    monthly_message_limit: int
+    messages_used_this_period: int  
     created_at: datetime
 
 
