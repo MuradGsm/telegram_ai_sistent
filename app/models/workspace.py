@@ -33,7 +33,7 @@ class Workspace(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     is_bot_active: Mapped[bool] = mapped_column(default=False, server_default=text('false'))
 
     plan_tier: Mapped[PlanTier] = mapped_column(
-        Enum(PlanTier, name='plan_tier_enum'),
+        Enum(PlanTier, name='plan_tier_enum', values_callable=lambda obj: [e.value for e in obj]),
         default=PlanTier.FREE,
         server_default=PlanTier.FREE.value,
     )

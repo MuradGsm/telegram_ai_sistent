@@ -36,7 +36,7 @@ class Dialog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     customer_display_name: Mapped[str | None] = mapped_column(String(255))
 
     status: Mapped[DialogStatus] = mapped_column(
-        Enum(DialogStatus, name='dialog_status_enum'),
+        Enum(DialogStatus, name='dialog_status_enum', values_callable=lambda obj: [e.value for e in obj]),
         default=DialogStatus.OPEN_AUTO,
         server_default=DialogStatus.OPEN_AUTO.value,
     )

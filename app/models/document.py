@@ -27,7 +27,7 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     content_type: Mapped[str] = mapped_column(String(100))
 
     status: Mapped[DocumentStatus] = mapped_column(
-        Enum(DocumentStatus, name='document_status_enum'),
+        Enum(DocumentStatus, name='document_status_enum', values_callable=lambda obj: [e.value for e in obj]),
         default=DocumentStatus.UPLOADED,
         server_default=DocumentStatus.UPLOADED.value,
     )

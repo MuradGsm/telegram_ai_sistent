@@ -25,7 +25,7 @@ class Subscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     workspace: Mapped[Workspace] = relationship(back_populates='subscription')
 
     status: Mapped[SubscriptionStatus] = mapped_column(
-        Enum(SubscriptionStatus, name='subscription_status_enum'),
+        Enum(SubscriptionStatus, name='subscription_status_enum', values_callable=lambda obj: [e.value for e in obj]),
         default=SubscriptionStatus.TRIALING,
         server_default=SubscriptionStatus.TRIALING.value,
     )
