@@ -5,10 +5,12 @@ from uuid import UUID
 
 import jwt
 from pwdlib import PasswordHash
+from pwdlib.hashers.bcrypt import BcryptHasher
+
 
 from app.core.conf import settings
 
-password_hash = PasswordHash.recommended()
+password_hash = PasswordHash((BcryptHasher(),))
 
 
 def hash_password(password: str) -> str:
