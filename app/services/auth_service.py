@@ -47,7 +47,7 @@ class AuthService:
             payload = decode_token(refresh_token, expected_type='refresh')
         except InvalidTokenError as exc:
             raise HTTPException(
-                status_code=HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,  detail="Invalid refresh token")
+                status_code=status.HTTP_401_UNAUTHORIZED,  detail="Invalid refresh token"
             ) from exc
 
         from uuid import UUID
