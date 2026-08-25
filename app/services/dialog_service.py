@@ -8,9 +8,10 @@ from app.models.dialog import Dialog
 from app.repositories.dialog_repository import DialogRepository
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.services.rag_service import rag_service
+from app.services.escalation_service import notify_owner_escalation
 
 
-class DialogSerice:
+class DialogService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.repo = DialogRepository(db)
@@ -56,6 +57,7 @@ class DialogSerice:
 
         if answer.needs_escalation:
             await self.repo.set_status(dialog, DialogStatus.ESCALATED)
+            await notify_owner_escalation(workspace, dialog, text)
 
         return dialog, answer.content
 

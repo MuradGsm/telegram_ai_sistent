@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     environment: str = "local"
     debug: bool = True
 
+    public_base_url: str = "https://your-domain.com"
+
     # Postgres
     postgres_user: str
     postgres_password: str

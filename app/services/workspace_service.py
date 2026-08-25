@@ -4,6 +4,7 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.conf import settings
 from app.models.workspace import Workspace
 from app.repositories.workspace_repository import WorkspaceRepository
 from app.schemas.workspace import WorkspaceConnectBot, WorkspaceCreate, WorkspaceUpdate
@@ -33,10 +34,9 @@ class WorkspaceService:
         self, workspace: Workspace, payload: WorkspaceConnectBot
     ) -> Workspace:
         username = await self._validate_bot_token(payload.telegram_bot_token)
+        await self._set_webhook(workspace.id, payload.telegram_bot_token)
         return await self.repo.set_telegram_bot(workspace, payload.telegram_bot_token, username)
 
-    async def delete(self, workspace: Workspace) -> None:
-        await self.repo.delete(workspace)
 
     @staticmethod
     async def _validate_bot_token(token: str) -> str:
@@ -53,3 +53,13 @@ class WorkspaceService:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Telegram bot token")
 
             return data['result']['username']
+
+    @staticmethod
+    async def _set_webhook(workspace_id, token: str) -> None:
+        webhook_url = f"{settings.public_base_url}/api/v1/telegram/webhook/{workspace_id}"
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{token}/setWebhook",
+                json={"url": webhook_url},
+            )
+        data = resp.json()

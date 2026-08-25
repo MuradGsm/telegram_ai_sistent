@@ -24,6 +24,7 @@ class WorkspaceOut(BaseModel):
     timezone: str
     is_bot_active: bool
     telegram_bot_username: str | None = None
+    owner_telegram_id: int | None = None
     plan_tier: PlanTier
     monthly_message_limit: int
     messages_used_this_period: int  

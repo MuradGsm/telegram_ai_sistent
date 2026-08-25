@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum, ForeignKey, String, Uuid, text
+from sqlalchemy import Enum, ForeignKey, String, Uuid, text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.enums import PlanTier
@@ -31,6 +31,7 @@ class Workspace(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     telegram_bot_token: Mapped[str | None] = mapped_column(String(255))
     telegram_bot_username: Mapped[str | None] = mapped_column(String(255))
     is_bot_active: Mapped[bool] = mapped_column(default=False, server_default=text('false'))
+    owner_telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     plan_tier: Mapped[PlanTier] = mapped_column(
         Enum(PlanTier, name='plan_tier_enum', values_callable=lambda obj: [e.value for e in obj]),
