@@ -2,7 +2,7 @@ from openai import AsyncOpenAI
 
 from app.core.conf import settings
 from app.external.qdrant_repository import qdrant_repository
-from app.workers.tasks import get_embedding_model
+from app.services.embedder import embed_texts
 
 CONFIDENCE_THRESHOLD = 0.45
 
@@ -31,7 +31,7 @@ class RagAnswer:
 
 class RagService:
     async def answer(self, workspace_id: str, question: str) -> RagAnswer:
-        query_vector = list(get_embedding_model().embed([question]))[0].tolist()
+        query_vector = embed_texts([question])[0]
 
         matches = await qdrant_repository.search(workspace_id, query_vector, limit=5)
 
@@ -67,5 +67,5 @@ class RagService:
             tokens_used=tokens_used,
         )
 
-    
+
 rag_service = RagService()
