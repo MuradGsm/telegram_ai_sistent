@@ -49,6 +49,12 @@ class WorkspaceRepository:
 
         return workspace
 
+    async def increment_message_usage(self, workspace: Workspace) -> Workspace:
+        workspace.messages_used_this_period += 1
+        await self.db.commit()
+        await self.db.refresh(workspace)
+        return workspace
+
     async def delete(self, workspace: Workspace) -> None:
         await self.db.delete(workspace)
         await self.db.commit()
