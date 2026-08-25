@@ -15,7 +15,7 @@ from app.schemas.workspace import (
 from app.services.workspace_service import WorkspaceService
 
 
-router = APIRouter(prefix='/workspace', tags=['workspace'])
+router = APIRouter(prefix='/workspaces', tags=['workspace'])
 
 def get_workspace_service(db: AsyncSession = Depends(get_db)) -> WorkspaceService:
     return WorkspaceService(db)
