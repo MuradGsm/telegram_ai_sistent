@@ -1,6 +1,7 @@
 from fastembed import TextEmbedding
 
-_embbeding_model: TextEmbedding | None = None
+_embedding_model: TextEmbedding | None = None
+
 
 def get_embedding_model() -> TextEmbedding:
     global _embedding_model

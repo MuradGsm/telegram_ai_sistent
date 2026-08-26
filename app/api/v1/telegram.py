@@ -19,7 +19,7 @@ async def telegram_webhook(
     db: AsyncSession = Depends(get_db)
 ):
     workspace_repo = WorkspaceRepository(db)
-    workspace = workspace_repo.get_by_id(workspace_id)
+    workspace = await workspace_repo.get_by_id(workspace_id)
 
     if workspace is None or not workspace.is_bot_active or not workspace.telegram_bot_token:
         raise HTTPException(

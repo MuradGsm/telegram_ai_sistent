@@ -50,7 +50,7 @@ class DialogService:
             answer.content,
             tokens_used=answer.tokens_used,
             confidence_score=answer.confidence,
-            source_chunk_ids=[UUID[cid] for cid in answer.source_chunk_ids],
+            source_chunk_ids=[UUID(cid) for cid in answer.source_chunk_ids],
         )
 
         await self.workspace_repo.increment_message_usage(workspace)

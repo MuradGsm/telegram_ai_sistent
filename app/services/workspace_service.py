@@ -56,7 +56,7 @@ class WorkspaceService:
 
     @staticmethod
     async def _set_webhook(workspace_id, token: str) -> None:
-        webhook_url = f"{settings.public_base_url}/api/v1/telegram/webhook/{workspace_id}"
+        webhook_url = f"{settings.public_base_url}/telegram/webhook/{workspace_id}"
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
                 f"https://api.telegram.org/bot{token}/setWebhook",
