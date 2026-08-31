@@ -4,7 +4,7 @@ from qdrant_client import AsyncQdrantClient, models
 
 from app.core.conf import settings
 
-EMBEDDING_SIZE = 384  
+EMBEDDING_SIZE = 384
 
 
 class QdrantRepository:
@@ -52,6 +52,10 @@ class QdrantRepository:
 
     async def delete_by_document(self, workspace_id: str, document_id: str) -> None:
         name = self._collection_name(workspace_id)
+        exists = await self._client.collection_exists(name)
+        if not exists:
+            return
+
         await self._client.delete(
             collection_name=name,
             points_selector=models.FilterSelector(
@@ -73,13 +77,24 @@ class QdrantRepository:
         if not exists:
             return []
 
+        # Включаем явную загрузку payload через with_payload=True
         results = await self._client.query_points(
-            collection_name=name, query=query_vector, limit=limit
+            collection_name=name,
+            query=query_vector,
+            limit=limit,
+            with_payload=True,
         )
-        return [
-            {"id": str(point.id), "text": point.payload["text"], "score": point.score}
-            for point in results.points
-        ]
+
+        output = []
+        for point in results.points:
+            payload = point.payload or {}
+            output.append({
+                "id": str(point.id),
+                "text": payload.get("text", ""),
+                "score": point.score,
+            })
+
+        return output
 
 
 qdrant_repository = QdrantRepository()

@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.enums import DialogStatus, MessageSender
 from app.models.dialog import Dialog, Message
@@ -15,6 +16,14 @@ class DialogRepository:
         result = await self.db.execute(select(Dialog).where(Dialog.id == dialog_id))
         return result.scalar_one_or_none()
 
+    async def get_by_id_with_messages(self, dialog_id: UUID) -> Dialog | None:
+        result = await self.db.execute(
+            select(Dialog)
+            .options(selectinload(Dialog.messages))
+            .where(Dialog.id == dialog_id)
+        )
+        return result.scalar_one_or_none()
+
     async def get_or_create(
         self, workspace_id: UUID, customer_telegram_id: int, customer_display_name: str | None
     ) -> Dialog:
@@ -22,11 +31,16 @@ class DialogRepository:
             select(Dialog).where(
                 Dialog.workspace_id == workspace_id,
                 Dialog.customer_telegram_id == customer_telegram_id,
-                Dialog.status != DialogStatus.CLOSED
+                Dialog.status != DialogStatus.CLOSED,
             )
         )
         dialog = result.scalar_one_or_none()
+        
         if dialog is not None:
+            if customer_display_name and dialog.customer_display_name != customer_display_name:
+                dialog.customer_display_name = customer_display_name
+                await self.db.commit()
+                await self.db.refresh(dialog)
             return dialog
 
         dialog = Dialog(

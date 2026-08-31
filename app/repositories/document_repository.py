@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.enums import DocumentStatus
 from app.models.document import Document
 
+
 class DocumentRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -26,11 +27,11 @@ class DocumentRepository:
         self, workspace_id: UUID, file_name: str, r2_object_key: str, content_type: str
     ) -> Document:
         document = Document(
-            workspace_id = workspace_id,
-            file_name = file_name,
-            r2_object_key = r2_object_key,
-            content_type = content_type,
-            status = DocumentStatus.UPLOADED
+            workspace_id=workspace_id,
+            file_name=file_name,
+            r2_object_key=r2_object_key,
+            content_type=content_type,
+            status=DocumentStatus.UPLOADED,
         )
 
         self.db.add(document)
@@ -40,8 +41,8 @@ class DocumentRepository:
 
     async def update_status(
         self,
-        document: Document, 
-        status: DocumentStatus, 
+        document: Document,
+        status: DocumentStatus,
         chunk_count: int | None = None,
         error_message: str | None = None,
     ) -> Document:
@@ -50,6 +51,12 @@ class DocumentRepository:
             document.chunk_count = chunk_count
         if error_message is not None:
             document.error_message = error_message
+        await self.db.commit()
+        await self.db.refresh(document)
+        return document
+
+    async def rename(self, document: Document, new_file_name: str) -> Document:
+        document.file_name = new_file_name
         await self.db.commit()
         await self.db.refresh(document)
         return document

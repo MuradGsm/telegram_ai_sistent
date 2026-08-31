@@ -40,3 +40,7 @@ class DialogListParam(BaseModel):
 
 class OwnerReplyCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+
+class DialogEvent(BaseModel):
+    type: str
+    data: dict

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     # Telegram
     bot_token: str = ""
+    telegram_webhook_secret: str = ""
 
     @property
     def database_url(self) -> str:

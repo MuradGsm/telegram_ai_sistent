@@ -8,12 +8,13 @@ from app.core.enums import PlanTier
 
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    timezone: str = Field(default='Asia/Baku', max_length=64)
+    timezone: str = Field(default="Asia/Baku", max_length=64)
 
 
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     timezone: str | None = Field(default=None, max_length=64)
+    owner_telegram_id: int | None = Field(default=None, ge=1) 
 
 
 class WorkspaceOut(BaseModel):
@@ -27,7 +28,7 @@ class WorkspaceOut(BaseModel):
     owner_telegram_id: int | None = None
     plan_tier: PlanTier
     monthly_message_limit: int
-    messages_used_this_period: int  
+    messages_used_this_period: int
     created_at: datetime
 
 

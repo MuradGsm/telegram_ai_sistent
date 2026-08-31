@@ -1,14 +1,19 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_owned_workspace
+from app.api.deps import get_owned_workspace
 from app.db.session import get_db
-from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.document import DocumentOut
 from app.services.document_service import DocumentService
+
+ALLOWED_CONTENT_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+}
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/documents", tags=["documents"])
 
@@ -23,6 +28,12 @@ async def upload_document(
     file: UploadFile = File(...),
     service: DocumentService = Depends(get_document_service),
 ):
+    if file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type: {file.content_type}. Allowed types: PDF, DOCX, TXT",
+        )
+
     return await service.upload(workspace.id, file)
 
 

@@ -1,11 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.workspace import Workspace
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate
-
 
 
 class WorkspaceRepository:
@@ -16,9 +15,17 @@ class WorkspaceRepository:
         result = await self.db.execute(select(Workspace).where(Workspace.id == workspace_id))
         return result.scalar_one_or_none()
 
+    async def get_by_bot_token(self, token: str) -> Workspace | None:
+        result = await self.db.execute(
+            select(Workspace).where(Workspace.telegram_bot_token == token)
+        )
+        return result.scalar_one_or_none()
+
     async def list_by_owner(self, owner_id: UUID) -> list[Workspace]:
         result = await self.db.execute(
-            select(Workspace).where(Workspace.owner_id == owner_id).order_by(Workspace.created_at)
+            select(Workspace)
+            .where(Workspace.owner_id == owner_id)
+            .order_by(Workspace.created_at)
         )
         return list(result.scalars().all())
 
@@ -27,17 +34,14 @@ class WorkspaceRepository:
         self.db.add(workspace)
         await self.db.commit()
         await self.db.refresh(workspace)
-
         return workspace
 
     async def update(self, workspace: Workspace, payload: WorkspaceUpdate) -> Workspace:
         data = payload.model_dump(exclude_unset=True)
         for field, value in data.items():
             setattr(workspace, field, value)
-
         await self.db.commit()
         await self.db.refresh(workspace)
-
         return workspace
 
     async def set_telegram_bot(self, workspace: Workspace, token: str, username: str) -> Workspace:
@@ -46,13 +50,16 @@ class WorkspaceRepository:
         workspace.is_bot_active = True
         await self.db.commit()
         await self.db.refresh(workspace)
-
         return workspace
 
     async def increment_message_usage(self, workspace: Workspace) -> Workspace:
-        workspace.messages_used_this_period += 1
+        await self.db.execute(
+            update(Workspace)
+            .where(Workspace.id == workspace.id)
+            .values(messages_used_this_period=Workspace.messages_used_this_period + 1)
+        )
         await self.db.commit()
-        await self.db.refresh(workspace)
+        await self.db.refresh(workspace)  # <--- Асинхронное обновление вместо expire
         return workspace
 
     async def delete(self, workspace: Workspace) -> None:

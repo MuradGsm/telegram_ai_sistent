@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID
 
 from arq.connections import RedisSettings
@@ -8,8 +9,8 @@ from app.db.session import AsyncSessionLocal
 from app.external.qdrant_repository import qdrant_repository
 from app.external.r2_client import r2_client
 from app.repositories.document_repository import DocumentRepository
+from app.services.embedder import embed_texts_async
 from app.services.text_extraction import extract_text, split_into_chunks
-from app.services.embedder import embed_texts
 
 
 async def process_document(ctx: dict, document_id: str) -> None:
@@ -22,9 +23,12 @@ async def process_document(ctx: dict, document_id: str) -> None:
         try:
             await repo.update_status(document, DocumentStatus.PROCESSING)
 
+            # 1. Загрузка файла из R2 (I/O)
             file_bytes = await r2_client.download_file(document.r2_object_key)
-            text = extract_text(file_bytes, document.content_type)
-            chunks = split_into_chunks(text)
+
+            # 2. Извлечение и сплит текста в фоновом потоке (CPU)
+            text = await asyncio.to_thread(extract_text, file_bytes, document.content_type)
+            chunks = await asyncio.to_thread(split_into_chunks, text)
 
             if not chunks:
                 await repo.update_status(
@@ -32,8 +36,12 @@ async def process_document(ctx: dict, document_id: str) -> None:
                 )
                 return
 
-            embeddings = embed_texts(chunks)
+            # 3. Векторизация чанков
+            # Вызываем embed_texts_async напрямую через await, 
+            # так как внутри неё уже используется run_in_threadpool
+            embeddings = await embed_texts_async(chunks)
 
+            # 4. Сохранение векторов в Qdrant (I/O)
             await qdrant_repository.upsert_chunks(
                 workspace_id=str(document.workspace_id),
                 document_id=str(document.id),

@@ -5,33 +5,36 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.session import get_db
 from app.core.security import InvalidTokenError, decode_token
+from app.db.session import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.services.workspace_service import WorkspaceService
 
-
-bearer_scheme =HTTPBearer(auto_error=True)
+bearer_scheme = HTTPBearer(auto_error=False)
 
 credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
-    headers={"WWW-Authenticate":"Bearer"}
+    headers={"WWW-Authenticate": "Bearer"},
 )
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_db)
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
+    if credentials is None:
+        raise credentials_exception
+
     try:
         payload = decode_token(credentials.credentials, expected_type="access")
     except InvalidTokenError as exc:
-        raise credentials_exception  from exc
+        raise credentials_exception from exc
 
     try:
-        user_id = UUID(payload['sub'])
-    except (KeyError, ValueError) as exc:
+        user_id = UUID(payload["sub"])
+    except (KeyError, ValueError, TypeError) as exc:
         raise credentials_exception from exc
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -46,12 +49,7 @@ async def get_current_user(
 async def get_owned_workspace(
     workspace_id: UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ) -> Workspace:
-    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
-    workspace = result.scalar_one_or_none()
-
-    if workspace is None or workspace.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
-
-    return workspace
+    service = WorkspaceService(db)
+    return await service.get_owned(workspace_id, current_user.id)

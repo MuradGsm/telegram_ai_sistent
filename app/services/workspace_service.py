@@ -22,44 +22,86 @@ class WorkspaceService:
 
     async def get_owned(self, workspace_id: UUID, owner_id: UUID) -> Workspace:
         workspace = await self.repo.get_by_id(workspace_id)
-
         if workspace is None or workspace.owner_id != owner_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Workspace not found')
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
+            )
         return workspace
 
     async def update(self, workspace: Workspace, payload: WorkspaceUpdate) -> Workspace:
         return await self.repo.update(workspace, payload)
+
+    async def delete(self, workspace: Workspace) -> None:
+        """Удаление воркспейса, отключение вебхука бота и очистка БД."""
+        if workspace.telegram_bot_token:
+            await self._delete_webhook(workspace.telegram_bot_token)
+
+        # TODO: Добавить вызов qdrant_service.delete_workspace_vectors(workspace.id) при необходимости
+
+        await self.repo.delete(workspace)
 
     async def connect_telegram_bot(
         self, workspace: Workspace, payload: WorkspaceConnectBot
     ) -> Workspace:
         username = await self._validate_bot_token(payload.telegram_bot_token)
         await self._set_webhook(workspace.id, payload.telegram_bot_token)
-        return await self.repo.set_telegram_bot(workspace, payload.telegram_bot_token, username)
-
+        return await self.repo.set_telegram_bot(
+            workspace, payload.telegram_bot_token, username
+        )
 
     @staticmethod
     async def _validate_bot_token(token: str) -> str:
         async with httpx.AsyncClient(timeout=10) as client:
             try:
-                resp = await client.get(f'https://api.telegram.org/bot{token}/getMe')
+                resp = await client.get(f"https://api.telegram.org/bot{token}/getMe")
             except httpx.HTTPError as exc:
                 raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not reach Telegram API"
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Could not reach Telegram API",
                 ) from exc
 
             data = resp.json()
             if not data.get("ok"):
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Telegram bot token")
-
-            return data['result']['username']
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid Telegram bot token",
+                )
+            return data["result"]["username"]
 
     @staticmethod
-    async def _set_webhook(workspace_id, token: str) -> None:
+    async def _set_webhook(workspace_id: UUID, token: str) -> None:
         webhook_url = f"{settings.public_base_url}/telegram/webhook/{workspace_id}"
+
+        payload = {"url": webhook_url}
+        if settings.telegram_webhook_secret:
+            payload["secret_token"] = settings.telegram_webhook_secret
+
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                f"https://api.telegram.org/bot{token}/setWebhook",
-                json={"url": webhook_url},
-            )
-        data = resp.json()
+            try:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{token}/setWebhook",
+                    json=payload,
+                )
+            except httpx.HTTPError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Failed to reach Telegram API for setting webhook",
+                ) from exc
+
+            data = resp.json()
+            if not data.get("ok"):
+                error_desc = data.get("description", "Unknown error")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Failed to set Telegram webhook: {error_desc}",
+                )
+
+    @staticmethod
+    async def _delete_webhook(token: str) -> None:
+        """Безопасный сброс вебхука Telegram без блокировки основного процесса."""
+        async with httpx.AsyncClient(timeout=5) as client:
+            try:
+                await client.post(f"https://api.telegram.org/bot{token}/deleteWebhook")
+            except Exception:
+                # Игнорируем любые сетевые ошибки и неверные токены при удалении
+                pass

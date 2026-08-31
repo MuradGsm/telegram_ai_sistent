@@ -59,6 +59,8 @@ services:
     volumes:
       - ./app:/code/app
       - ./alembic:/code/alembic
+      - ./tests:/code/tests
+      - ./pytest.ini:/code/pytest.ini
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   worker:

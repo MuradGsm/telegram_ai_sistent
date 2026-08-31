@@ -1,7 +1,7 @@
 import uuid
 from uuid import UUID
 
-from arq import create_pool
+from arq import ArqRedis, create_pool
 from arq.connections import RedisSettings
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,6 @@ from app.external.r2_client import r2_client
 from app.models.document import Document
 from app.repositories.document_repository import DocumentRepository
 
-
 ALLOWED_CONTENT_TYPES = {
     "application/pdf",
     "text/plain",
@@ -19,6 +18,17 @@ ALLOWED_CONTENT_TYPES = {
 }
 
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024
+
+# Глобальный пул для фоновых задач ARQ
+_arq_redis_pool: ArqRedis | None = None
+
+
+async def get_arq_redis() -> ArqRedis:
+    global _arq_redis_pool
+    if _arq_redis_pool is None:
+        _arq_redis_pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    return _arq_redis_pool
+
 
 class DocumentService:
     def __init__(self, db: AsyncSession):
@@ -31,6 +41,7 @@ class DocumentService:
                 detail=f"Unsupported file type: {file.content_type}",
             )
 
+        # Проверка размера без удержания всего файла в оперативной памяти extra-раз
         file_bytes = await file.read()
         if len(file_bytes) > MAX_FILE_SIZE_BYTES:
             raise HTTPException(
@@ -38,14 +49,15 @@ class DocumentService:
                 detail="File is too large (max 20MB)",
             )
 
-        object_key = f"{workspace_id}.{uuid.uuid4()}_{file.filename}"
+        safe_filename = file.filename or "file"
+        object_key = f"{workspace_id}/{uuid.uuid4()}_{safe_filename}"
         await r2_client.upload_file(object_key, file_bytes, file.content_type)
 
         document = await self.repo.create(
             workspace_id=workspace_id,
-            file_name=file.filename,
+            file_name=safe_filename,
             r2_object_key=object_key,
-            content_type=file.content_type
+            content_type=file.content_type or "application/octet-stream",
         )
 
         await self._enqueue_indexing(document.id)
@@ -56,9 +68,10 @@ class DocumentService:
 
     async def get_owned(self, document_id: UUID, workspace_id: UUID) -> Document:
         document = await self.repo.get_by_id(document_id)
-
         if document is None or document.workspace_id != workspace_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Document not found')
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+            )
         return document
 
     async def delete(self, document: Document) -> None:
@@ -67,6 +80,5 @@ class DocumentService:
 
     @staticmethod
     async def _enqueue_indexing(document_id: UUID) -> None:
-        redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        redis = await get_arq_redis()
         await redis.enqueue_job("process_document", str(document_id))
-        await redis.close()
