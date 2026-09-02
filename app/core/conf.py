@@ -43,10 +43,6 @@ class Settings(BaseSettings):
     r2_bucket_name: str = "kp-logos"
     r2_endpoint_url: str = ""
 
-    # Telegram
-    bot_token: str = ""
-    telegram_webhook_secret: str = ""
-
     @property
     def database_url(self) -> str:
         return (

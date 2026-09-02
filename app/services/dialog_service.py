@@ -36,7 +36,8 @@ class DialogService:
     async def handle_incoming_customer_message(
         self,
         workspace_id: UUID,
-        customer_telegram_id: int,
+        channel_id: UUID,
+        external_customer_id: str,
         customer_display_name: str | None,
         text: str,
     ) -> tuple[Dialog, str]:
@@ -45,11 +46,12 @@ class DialogService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
 
         dialog = await self.repo.get_or_create(
-            workspace_id, customer_telegram_id, customer_display_name
+            workspace_id, channel_id, external_customer_id, customer_display_name
         )
 
         if workspace.messages_used_this_period >= workspace.monthly_message_limit:
             msg = await self.repo.add_message(dialog, MessageSender.CUSTOMER, text)
+            await self.db.commit()
             await self._broadcast_message(dialog.id, msg)
             return (
                 dialog,
@@ -60,6 +62,7 @@ class DialogService:
         await self._broadcast_message(dialog.id, customer_msg)
 
         if dialog.status in (DialogStatus.ESCALATED, DialogStatus.OPEN_HUMAN):
+            await self.db.commit()
             return dialog, "Оператор уже подключен к диалогу и скоро вам ответит."
 
         answer = await rag_service.answer(str(workspace_id), text)
@@ -83,8 +86,9 @@ class DialogService:
         if answer.needs_escalation:
             await self.repo.set_status(dialog, DialogStatus.ESCALATED)
             await self._broadcast_status(dialog.id, DialogStatus.ESCALATED)
-            await notify_owner_escalation(workspace, dialog, text)
+            await notify_owner_escalation(self.db, workspace, dialog, text)
 
+        await self.db.commit()
         return dialog, answer.content
 
     async def owner_reply(self, dialog: Dialog, content: str) -> None:
@@ -93,9 +97,11 @@ class DialogService:
         if dialog.status != DialogStatus.OPEN_HUMAN:
             await self.repo.set_status(dialog, DialogStatus.OPEN_HUMAN)
             await self._broadcast_status(dialog.id, DialogStatus.OPEN_HUMAN)
+        await self.db.commit()
 
     async def close(self, dialog: Dialog) -> Dialog:
         dialog = await self.repo.set_status(dialog, DialogStatus.CLOSED)
+        await self.db.commit()
         await self._broadcast_status(dialog.id, DialogStatus.CLOSED)
         return dialog
 
@@ -111,16 +117,16 @@ class DialogService:
         )
 
     async def get_owned(self, dialog_id: UUID, workspace_id: UUID) -> Dialog:
-        dialog = await self.repo.get_by_id(dialog_id)
-        if dialog is None or dialog.workspace_id != workspace_id:
+        dialog = await self.repo.get_by_id(dialog_id, workspace_id)
+        if dialog is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dialog not found"
             )
         return dialog
 
     async def get_owned_with_messages(self, dialog_id: UUID, workspace_id: UUID) -> Dialog:
-        dialog = await self.repo.get_by_id_with_messages(dialog_id)
-        if dialog is None or dialog.workspace_id != workspace_id:
+        dialog = await self.repo.get_by_id_with_messages(dialog_id, workspace_id)
+        if dialog is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Dialog not found"
             )

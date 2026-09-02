@@ -11,8 +11,13 @@ class DocumentRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_id(self, document_id: UUID) -> Document | None:
-        result = await self.db.execute(select(Document).where(Document.id == document_id))
+    async def get_by_id(self, document_id: UUID, workspace_id: UUID) -> Document | None:
+        result = await self.db.execute(
+            select(Document).where(
+                Document.id == document_id,
+                Document.workspace_id == workspace_id,
+            )
+        )
         return result.scalar_one_or_none()
 
     async def list_by_workspace(self, workspace_id: UUID) -> list[Document]:
@@ -35,8 +40,7 @@ class DocumentRepository:
         )
 
         self.db.add(document)
-        await self.db.commit()
-        await self.db.refresh(document)
+        await self.db.flush()
         return document
 
     async def update_status(
@@ -51,16 +55,14 @@ class DocumentRepository:
             document.chunk_count = chunk_count
         if error_message is not None:
             document.error_message = error_message
-        await self.db.commit()
-        await self.db.refresh(document)
+        await self.db.flush()
         return document
 
     async def rename(self, document: Document, new_file_name: str) -> Document:
         document.file_name = new_file_name
-        await self.db.commit()
-        await self.db.refresh(document)
+        await self.db.flush()
         return document
 
     async def delete(self, document: Document) -> None:
         await self.db.delete(document)
-        await self.db.commit()
+        await self.db.flush()

@@ -12,25 +12,40 @@ class DialogRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_id(self, dialog_id: UUID) -> Dialog | None:
-        result = await self.db.execute(select(Dialog).where(Dialog.id == dialog_id))
-        return result.scalar_one_or_none()
-
-    async def get_by_id_with_messages(self, dialog_id: UUID) -> Dialog | None:
+    async def get_by_id(self, dialog_id: UUID, workspace_id: UUID) -> Dialog | None:
         result = await self.db.execute(
             select(Dialog)
-            .options(selectinload(Dialog.messages))
-            .where(Dialog.id == dialog_id)
+            .options(selectinload(Dialog.channel))
+            .where(
+                Dialog.id == dialog_id,
+                Dialog.workspace_id == workspace_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_id_with_messages(self, dialog_id: UUID, workspace_id: UUID) -> Dialog | None:
+        result = await self.db.execute(
+            select(Dialog)
+            .options(selectinload(Dialog.messages), selectinload(Dialog.channel))
+            .where(
+                Dialog.id == dialog_id,
+                Dialog.workspace_id == workspace_id,
+            )
         )
         return result.scalar_one_or_none()
 
     async def get_or_create(
-        self, workspace_id: UUID, customer_telegram_id: int, customer_display_name: str | None
+        self, 
+        workspace_id: UUID, 
+        channel_id: UUID, 
+        external_customer_id: str, 
+        customer_display_name: str | None
     ) -> Dialog:
         result = await self.db.execute(
             select(Dialog).where(
                 Dialog.workspace_id == workspace_id,
-                Dialog.customer_telegram_id == customer_telegram_id,
+                Dialog.channel_id == channel_id,
+                Dialog.external_customer_id == external_customer_id,
                 Dialog.status != DialogStatus.CLOSED,
             )
         )
@@ -39,26 +54,27 @@ class DialogRepository:
         if dialog is not None:
             if customer_display_name and dialog.customer_display_name != customer_display_name:
                 dialog.customer_display_name = customer_display_name
-                await self.db.commit()
-                await self.db.refresh(dialog)
+                await self.db.flush()
             return dialog
 
         dialog = Dialog(
             workspace_id=workspace_id,
-            customer_telegram_id=customer_telegram_id,
+            channel_id=channel_id,
+            external_customer_id=external_customer_id,
             customer_display_name=customer_display_name,
             status=DialogStatus.OPEN_AUTO,
         )
 
         self.db.add(dialog)
-        await self.db.commit()
-        await self.db.refresh(dialog)
+        await self.db.flush()
         return dialog
 
     async def list_by_workspace(
         self, workspace_id: UUID, status: DialogStatus | None, limit: int, offset: int
     ) -> list[Dialog]:
-        query = select(Dialog).where(Dialog.workspace_id == workspace_id)
+        query = select(Dialog).options(selectinload(Dialog.channel)).where(
+            Dialog.workspace_id == workspace_id
+        )
         if status is not None:
             query = query.where(Dialog.status == status)
 
@@ -69,8 +85,7 @@ class DialogRepository:
 
     async def set_status(self, dialog: Dialog, status: DialogStatus) -> Dialog:
         dialog.status = status
-        await self.db.commit()
-        await self.db.refresh(dialog)
+        await self.db.flush()
         return dialog
 
     async def add_message(
@@ -91,6 +106,5 @@ class DialogRepository:
             source_chunk_ids=source_chunk_ids,
         )
         self.db.add(message)
-        await self.db.commit()
-        await self.db.refresh(message)
+        await self.db.flush()
         return message

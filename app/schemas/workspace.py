@@ -14,7 +14,7 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     timezone: str | None = Field(default=None, max_length=64)
-    owner_telegram_id: int | None = Field(default=None, ge=1) 
+    owner_telegram_id: str | None = Field(default=None, max_length=64)
 
 
 class WorkspaceOut(BaseModel):
@@ -23,14 +23,12 @@ class WorkspaceOut(BaseModel):
     id: UUID
     name: str
     timezone: str
-    is_bot_active: bool
-    telegram_bot_username: str | None = None
-    owner_telegram_id: int | None = None
     plan_tier: PlanTier
     monthly_message_limit: int
     messages_used_this_period: int
+    owner_telegram_id: str | None = None
     created_at: datetime
 
 
-class WorkspaceConnectBot(BaseModel):
-    telegram_bot_token: str = Field(min_length=20, max_length=255)
+class WorkspaceListOut(WorkspaceOut):
+    active_channels_count: int = 0

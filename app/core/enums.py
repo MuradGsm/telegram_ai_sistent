@@ -34,3 +34,10 @@ class SubscriptionStatus(str, Enum):
     ACTIVE = "active"
     PAST_DUE = "past_due"
     CANCELED = "canceled"
+
+
+class ChannelType(str, Enum):
+    TELEGRAM = "telegram"
+    INSTAGRAM = "instagram"
+    WHATSAPP = "whatsapp"
+    WEB = "web"

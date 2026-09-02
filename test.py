@@ -6,11 +6,11 @@ from openai import AsyncOpenAI
 NVIDIA_API_KEY = "nvapi-YOUR_KEY_HERE"
 
 # Модель для проверки
-MODEL_NAME = "openai/gpt-oss-20b"
+MODEL_NAME = "meta/llama-3.2-11b-vision-instruct"
 
 client = AsyncOpenAI(
     base_url="https://integrate.api.nvidia.com/v1",
-    api_key="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",
+    api_key="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",
 )
 
 

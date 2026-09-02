@@ -9,11 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_workspace
-from app.core.enums import DialogStatus
+from app.core.enums import ChannelType, DialogStatus
 from app.core.security import InvalidTokenError, decode_token
 from app.db.session import get_db
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.repositories.channel_repository import ChannelRepository
 from app.schemas.dialog import DialogDetailOut, DialogOut, OwnerReplyCreate
 from app.services.dialog_service import DialogService
 from app.services.workspace_service import WorkspaceService
@@ -53,28 +54,36 @@ async def reply_to_dialog(
     payload: OwnerReplyCreate,
     workspace: Workspace = Depends(get_owned_workspace),
     service: DialogService = Depends(get_dialog_service),
+    db: AsyncSession = Depends(get_db),
 ):
-    if not workspace.telegram_bot_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Telegram bot is not connected to this workspace",
-        )
-
     dialog = await service.get_owned(dialog_id, workspace.id)
 
-    # 1. Сначала отправляем сообщение в Telegram
-    async with Bot(token=workspace.telegram_bot_token) as bot:
-        try:
-            await bot.send_message(
-                chat_id=dialog.customer_telegram_id, text=payload.content
-            )
-        except TelegramAPIError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to send message via Telegram: {exc.message}",
-            ) from exc
+    channel_repo = ChannelRepository(db)
+    channel = await channel_repo.get_by_id(dialog.channel_id, workspace.id)
+    if channel is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found"
+        )
 
-    # 2. Только при успешной доставке сохраняем ответ в базу данных
+    if channel.type == ChannelType.TELEGRAM:
+        bot_token = channel.credentials.get("bot_token")
+        if not bot_token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Bot token is missing in channel credentials",
+            )
+
+        async with Bot(token=bot_token) as bot:
+            try:
+                await bot.send_message(
+                    chat_id=int(dialog.external_customer_id), text=payload.content
+                )
+            except TelegramAPIError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=f"Failed to send message via Telegram: {exc.message}",
+                ) from exc
+
     await service.owner_reply(dialog, payload.content)
 
 
@@ -96,7 +105,6 @@ async def dialog_ws(
     token: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    # Принимаем соединение до валидации, чтобы websocket.close() отправлял корректный WS-код закрытия
     await websocket.accept()
 
     if token is None:
@@ -141,22 +149,29 @@ async def dialog_ws(
                 if not content or len(content) > 4000:
                     await websocket.send_json({"type": "error", "detail": "Invalid content"})
                     continue
-                if not workspace.telegram_bot_token:
-                    await websocket.send_json(
-                        {"type": "error", "detail": "Telegram bot is not connected"}
-                    )
+
+                channel_repo = ChannelRepository(db)
+                channel = await channel_repo.get_by_id(dialog.channel_id, workspace.id)
+                if channel is None:
+                    await websocket.send_json({"type": "error", "detail": "Channel not found"})
                     continue
 
-                async with Bot(token=workspace.telegram_bot_token) as bot:
-                    try:
-                        await bot.send_message(
-                            chat_id=dialog.customer_telegram_id, text=content
-                        )
-                    except TelegramAPIError as exc:
-                        await websocket.send_json(
-                            {"type": "error", "detail": f"Telegram error: {exc.message}"}
-                        )
+                if channel.type == ChannelType.TELEGRAM:
+                    bot_token = channel.credentials.get("bot_token")
+                    if not bot_token:
+                        await websocket.send_json({"type": "error", "detail": "Bot token missing"})
                         continue
+
+                    async with Bot(token=bot_token) as bot:
+                        try:
+                            await bot.send_message(
+                                chat_id=int(dialog.external_customer_id), text=content
+                            )
+                        except TelegramAPIError as exc:
+                            await websocket.send_json(
+                                {"type": "error", "detail": f"Telegram error: {exc.message}"}
+                            )
+                            continue
 
                 await service.owner_reply(dialog, content)
 
@@ -169,5 +184,4 @@ async def dialog_ws(
     except WebSocketDisconnect:
         pass
     finally:
-        # disconnect — синхронный метод у DialogConnectionManager
-        ws_manager.disconnect(dialog_id, websocket)
+        await ws_manager.disconnect(dialog_id, websocket)

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     ARRAY,
-    BigInteger,
     Enum,
     ForeignKey,
     Index,
@@ -13,14 +12,16 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import DialogStatus, MessageSender
+from app.core.enums import ChannelType, DialogStatus, MessageSender
 from app.db.database import Base
 from app.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
+    from app.models.channel import Channel
     from app.models.workspace import Workspace
 
 
@@ -32,24 +33,40 @@ class Dialog(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     workspace: Mapped[Workspace] = relationship(back_populates='dialogs')
 
-    customer_telegram_id: Mapped[int] = mapped_column(BigInteger)
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey('channels.id', ondelete='CASCADE'), index=True
+    )
+    channel: Mapped[Channel] = relationship()
+
+    external_customer_id: Mapped[str] = mapped_column(String(255))
     customer_display_name: Mapped[str | None] = mapped_column(String(255))
 
     status: Mapped[DialogStatus] = mapped_column(
-        Enum(DialogStatus, name='dialog_status_enum', values_callable=lambda obj: [e.value for e in obj]),
+        Enum(
+            DialogStatus,
+            name='dialog_status_enum',
+            values_callable=lambda obj: [e.value for e in obj],
+        ),
         default=DialogStatus.OPEN_AUTO,
-        server_default=DialogStatus.OPEN_AUTO.value,
+        server_default=text("'open_auto'"),
     )
 
     messages: Mapped[list[Message]] = relationship(
         back_populates='dialog',
         cascade='all, delete-orphan',
-        order_by=lambda: Message.created_at, 
+        order_by=lambda: Message.created_at,
     )
 
     __table_args__ = (
-        Index('ix_dialogs_workspace_customer', 'workspace_id', 'customer_telegram_id'),
+        Index('ix_dialogs_channel_customer', 'channel_id', 'external_customer_id'),
     )
+
+    @property
+    def channel_type(self) -> ChannelType:
+        """Тип канала, через который идёт диалог. Требует, чтобы `channel`
+        был загружен заранее (selectinload/joinedload) - иначе в async-контексте
+        ленивая подгрузка упадёт с MissingGreenlet."""
+        return self.channel.type
 
 
 class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -61,7 +78,11 @@ class Message(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     dialog: Mapped[Dialog] = relationship(back_populates='messages')
 
     sender: Mapped[MessageSender] = mapped_column(
-        Enum(MessageSender, name='message_sender_enum')
+        Enum(
+            MessageSender,
+            name='message_sender_enum',
+            values_callable=lambda obj: [e.value for e in obj],
+        )
     )
     content: Mapped[str] = mapped_column(Text)
 

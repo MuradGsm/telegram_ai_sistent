@@ -30,8 +30,7 @@ class UserRepository:
         )
 
         self.db.add(user)
-        await self.db.commit()
-        await self.db.refresh(user)
+        await self.db.flush()
         return user
 
     async def update(self, user: User, **kwargs) -> User:
@@ -39,6 +38,5 @@ class UserRepository:
             if hasattr(user, key) and value is not None:
                 setattr(user, key, value)
 
-        await self.db.commit()
-        await self.db.refresh(user)
+        await self.db.flush()
         return user

@@ -19,7 +19,6 @@ ALLOWED_CONTENT_TYPES = {
 
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024
 
-# Глобальный пул для фоновых задач ARQ
 _arq_redis_pool: ArqRedis | None = None
 
 
@@ -32,6 +31,7 @@ async def get_arq_redis() -> ArqRedis:
 
 class DocumentService:
     def __init__(self, db: AsyncSession):
+        self.db = db
         self.repo = DocumentRepository(db)
 
     async def upload(self, workspace_id: UUID, file: UploadFile) -> Document:
@@ -41,7 +41,6 @@ class DocumentService:
                 detail=f"Unsupported file type: {file.content_type}",
             )
 
-        # Проверка размера без удержания всего файла в оперативной памяти extra-раз
         file_bytes = await file.read()
         if len(file_bytes) > MAX_FILE_SIZE_BYTES:
             raise HTTPException(
@@ -60,6 +59,8 @@ class DocumentService:
             content_type=file.content_type or "application/octet-stream",
         )
 
+        # Сначала фиксируем документ в БД, затем отправляем в очередь
+        await self.db.commit()
         await self._enqueue_indexing(document.id)
         return document
 
@@ -67,8 +68,8 @@ class DocumentService:
         return await self.repo.list_by_workspace(workspace_id)
 
     async def get_owned(self, document_id: UUID, workspace_id: UUID) -> Document:
-        document = await self.repo.get_by_id(document_id)
-        if document is None or document.workspace_id != workspace_id:
+        document = await self.repo.get_by_id(document_id, workspace_id)
+        if document is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
             )
@@ -77,6 +78,7 @@ class DocumentService:
     async def delete(self, document: Document) -> None:
         await r2_client.delete_file(document.r2_object_key)
         await self.repo.delete(document)
+        await self.db.commit()
 
     @staticmethod
     async def _enqueue_indexing(document_id: UUID) -> None:

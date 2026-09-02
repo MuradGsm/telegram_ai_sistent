@@ -8,6 +8,7 @@ from app.core.enums import DocumentStatus
 from app.db.session import AsyncSessionLocal
 from app.external.qdrant_repository import qdrant_repository
 from app.external.r2_client import r2_client
+from app.models.document import Document
 from app.repositories.document_repository import DocumentRepository
 from app.services.embedder import embed_texts_async
 from app.services.text_extraction import extract_text, split_into_chunks
@@ -16,12 +17,15 @@ from app.services.text_extraction import extract_text, split_into_chunks
 async def process_document(ctx: dict, document_id: str) -> None:
     async with AsyncSessionLocal() as db:
         repo = DocumentRepository(db)
-        document = await repo.get_by_id(UUID(document_id))
+        
+        # Загружаем документ напрямую через сессию без проверки workspace_id
+        document = await db.get(Document, UUID(document_id))
         if document is None:
             return
 
         try:
             await repo.update_status(document, DocumentStatus.PROCESSING)
+            await db.commit()
 
             # 1. Загрузка файла из R2 (I/O)
             file_bytes = await r2_client.download_file(document.r2_object_key)
@@ -34,11 +38,10 @@ async def process_document(ctx: dict, document_id: str) -> None:
                 await repo.update_status(
                     document, DocumentStatus.FAILED, error_message="No extractable text found"
                 )
+                await db.commit()
                 return
 
             # 3. Векторизация чанков
-            # Вызываем embed_texts_async напрямую через await, 
-            # так как внутри неё уже используется run_in_threadpool
             embeddings = await embed_texts_async(chunks)
 
             # 4. Сохранение векторов в Qdrant (I/O)
@@ -50,8 +53,11 @@ async def process_document(ctx: dict, document_id: str) -> None:
             )
 
             await repo.update_status(document, DocumentStatus.INDEXED, chunk_count=len(chunks))
+            await db.commit()
+
         except Exception as exc:
             await repo.update_status(document, DocumentStatus.FAILED, error_message=str(exc)[:1000])
+            await db.commit()
 
 
 async def startup(ctx: dict) -> None:

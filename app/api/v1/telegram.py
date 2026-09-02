@@ -1,69 +1,55 @@
 from uuid import UUID
-
-from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
-from aiogram.types import Update
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.conf import settings
 from app.db.session import get_db
-from app.repositories.workspace_repository import WorkspaceRepository
+from app.external.redis import redis_client
+from app.core.enums import ChannelType
+from app.models.channel import Channel
 from app.services.dialog_service import DialogService
+from app.providers.registry import get_provider
 
-router = APIRouter(prefix="/telegram", tags=["telegram"])
+router = APIRouter(tags=["telegram"])
 
 
-@router.post("/webhook/{workspace_id}")
+@router.post("/telegram/webhook/{channel_id}")
 async def telegram_webhook(
-    workspace_id: UUID,
+    channel_id: UUID,
     update: dict,
-    x_telegram_bot_api_secret_token: str | None = Header(default=None),
+    x_telegram_bot_api_secret_token: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
 ):
-    # 1. Валидация секретного токена Telegram Webhook
-    if (
-        settings.telegram_webhook_secret
-        and x_telegram_bot_api_secret_token != settings.telegram_webhook_secret
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid secret token",
-        )
+    channel = await db.get(Channel, channel_id)
+    if channel is None or channel.type != ChannelType.TELEGRAM:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
 
-    # 2. Проверка воркспейса
-    workspace_repo = WorkspaceRepository(db)
-    workspace = await workspace_repo.get_by_id(workspace_id)
+    expected_secret = channel.credentials.get("webhook_secret")
+    if expected_secret and x_telegram_bot_api_secret_token != expected_secret:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid secret token")
 
-    # Если воркспейс удалён или бот отключён — отдаём 200 OK, чтобы Telegram
-    # прекратил повторные попытки (retry) на мёртвый эндпоинт
-    if not workspace or not workspace.is_bot_active or not workspace.telegram_bot_token:
-        return {"ok": True, "detail": "Bot disabled or workspace not found"}
-
-    parsed_update = Update.model_validate(update)
-    message = parsed_update.message
-
-    if message is None or message.text is None:
+    provider = get_provider(channel.type)
+    incoming = provider.parse_incoming(update)
+    if incoming is None:
         return {"ok": True}
 
-    dialog_service = DialogService(db)
+    if incoming.external_message_id:
+        dedup_key = f"tg:update:{channel_id}:{incoming.external_message_id}"
+        is_new = await redis_client.set(dedup_key, "1", ex=86400, nx=True)
+        if not is_new:
+            return {"ok": True}
 
-    # 3. Обработка входящего сообщения и генерация RAG/LLM ответа
-    dialog, reply_text = await dialog_service.handle_incoming_customer_message(
-        workspace_id=workspace_id,
-        customer_telegram_id=message.from_user.id,
-        customer_display_name=message.from_user.full_name,
-        text=message.text,
+    dialog_service = DialogService(db)
+    _, bot_reply = await dialog_service.handle_incoming_customer_message(
+        workspace_id=channel.workspace_id,
+        channel_id=channel.id,
+        external_customer_id=incoming.external_customer_id,
+        customer_display_name=incoming.customer_display_name,
+        text=incoming.text,
     )
 
-    # 4. Отправка ответа клиенту
-    if reply_text:
-        async with Bot(token=workspace.telegram_bot_token) as bot:
-            try:
-                await bot.send_message(chat_id=message.chat.id, text=reply_text)
-            except TelegramAPIError:
-                # Клиент мог заблокировать бота или удалить чат —
-                # не роняем обработку вебхука, просто не доставляем ответ.
-                pass
+    try:
+        await provider.send_reply(channel.credentials, incoming.external_customer_id, bot_reply)
+    except Exception:
+        pass
 
     return {"ok": True}

@@ -18,6 +18,7 @@ from app.schemas.auth import TokenPair, UserLogin, UserRegister
 
 class AuthService:
     def __init__(self, db: AsyncSession):
+        self.db = db
         self.repo = UserRepository(db)
 
     async def register(self, payload: UserRegister) -> User:
@@ -28,7 +29,10 @@ class AuthService:
             )
 
         hashed = await hash_password_async(payload.password)
-        return await self.repo.create(payload, hashed)
+        user = await self.repo.create(payload, hashed)
+        
+        await self.db.commit()
+        return user
 
     async def login(self, payload: UserLogin) -> TokenPair:
         user = await self.repo.get_by_email(payload.email)

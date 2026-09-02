@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
-from app.core.enums import DialogStatus, MessageSender
+from app.core.enums import ChannelType, DialogStatus, MessageSender
 
 
 class MessageOut(BaseModel):
@@ -18,14 +18,16 @@ class MessageOut(BaseModel):
 
 
 class DialogOut(BaseModel):
-    model_config =  ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     workspace_id: UUID
-    customer_telegram_id: int
+    external_customer_id: str
     customer_display_name: str | None = None
     status: DialogStatus
     created_at: datetime
+    channel_id: UUID
+    channel_type: ChannelType
 
 
 class DialogDetailOut(DialogOut):
